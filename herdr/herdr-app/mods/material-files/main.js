@@ -1,7 +1,26 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, appHome } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window, appHome, props, openOverlay, closeOverlay, notify, run } from "herdr";
+
+// 우클릭 메뉴: 같은 모드를 popup 오버레이로 다시 열고 props.menu 로 대상 정보를 넘긴다.
+// props.menu = { abs, rel, name, dir, on }
+function menuItems(m) {
+  const items = [
+    ["절대경로 복사", "copy", m.abs],
+    ["상대경로 복사", "copy", m.rel],
+    ["이름 복사", "copy", m.name],
+  ];
+  if (!m.on) {
+    const folder = m.dir ? m.abs : m.abs.replace(/\/[^/]*$/, "") || "/";
+    items.push(["이 폴더에서 터미널 열기", "terminal", folder]);
+  }
+  return items;
+}
+
+function openMenu(m) {
+  openOverlay({ mod: "material-files", kind: "popup", width: 230, height: 14 + menuItems(m).length * 31, props: { menu: m } });
+}
 
 // Material Icon Theme (VS Code, MIT): icon-map.json and icons/ were generated from the
 // installed extension's dist/material-icons.json with its light-theme overrides merged.
@@ -56,6 +75,8 @@ async function directory(path, on) {
 
 export default class Files extends View {
   init(_props, cx) {
+    this.menu = props()?.menu ?? null;
+    if (this.menu) { this.at = 0; this.handle = cx.focus_handle(); this.handle.focus(); return; }
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
     this.iconMap = null;
@@ -176,6 +197,7 @@ export default class Files extends View {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
         .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.show(path, cx))
+        .on_mouse_down("right", (_e, cx) => { cx.stop_propagation(); openMenu({ abs: `${this.root}/${path}`, rel: path, name: entry.name, dir: entry.dir, on: this.on ?? null }); })
         .child(entry.dir ? svg(`mods/material-files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child((() => {
           const icon = iconFor(this.iconMap, entry.name, entry.dir, open);
@@ -189,7 +211,38 @@ export default class Files extends View {
     return out;
   }
 
+  choose(i, cx) {
+    const it = menuItems(this.menu)[i];
+    if (!it) return;
+    closeOverlay(props()?.overlay);
+    if (it[1] === "copy") {
+      cx.write_to_clipboard(it[2]);
+      notify({ title: "복사됨", body: it[2], level: "success", timeout: 2000 });
+    } else if (it[1] === "terminal") run("terminal.open", { folder: it[2], place: "tab" });
+  }
+
+  renderMenu() {
+    const t = theme(), list = menuItems(this.menu);
+    return v_flex().id("files-menu").track_focus(this.handle).w_full().min_h(0).p(5).bg(t.popover).text_size(12.8)
+      .on_key_down((e, cx) => {
+        if (e.key === "down") this.at = (this.at + 1) % list.length;
+        else if (e.key === "up") this.at = (this.at + list.length - 1) % list.length;
+        else if (e.key === "enter") this.choose(this.at, cx);
+        else if (e.key === "escape") closeOverlay(props().overlay);
+        else return;
+        cx.notify();
+      })
+      .children(list.map((it, i) => h_flex().id(`fm-${i}`).h(31).flex_none().px(8).gap(9).rounded(7).items_center()
+        .text_color(t.foreground).cursor_pointer()
+        .when(i === this.at, el => el.bg(t.selected))
+        .hover(s => s.bg(t.hover))
+        .on_click((_e, cx) => this.choose(i, cx))
+        .child(svg(`mods/workspace-chrome/${it[1] === "copy" ? "file-text" : "terminal"}.svg`).size(14).flex_none().text_color(t.muted))
+        .child(div().flex_1().min_w(0).truncate().child(it[0]))));
+  }
+
   render(cx) {
+    if (this.menu) return this.renderMenu();
     if (key() !== this.context?.key) this.refresh(cx);
     const t = theme();
     // Files 패널 배경 = 왼쪽 사이드바와 같은 chrome 색
