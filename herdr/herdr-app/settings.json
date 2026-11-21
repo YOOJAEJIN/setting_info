@@ -1,0 +1,17 @@
+{
+  "zoom": 1.2000000476837158,
+  "sounds": {
+    "enabled": true
+  },
+  "font": "Ubuntu Sans Mono",
+  "font_size": 14.0,
+  "font_weight": 400,
+  "font_ligatures": false,
+  "terminal_line_height": 1.149999976158142,
+  "terminal_cell_width": 0.94,
+  "terminal_scroll_speed": 1.0,
+  "ui_font": "Noto Sans",
+  "minimum_contrast": 1.0,
+  "appearance": "light",
+  "theme": "vscode-light"
+}
